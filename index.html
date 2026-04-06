@@ -295,7 +295,7 @@
                     }
                     
                     statusDot.className = 'dot connected';
-                    statusText.innerText = "Wi-Fi Sync On";
+                    statusText.innerText = `Wi-Fi Sync On (Room: ${roomId})`;
 
                     const strokesRef = collection(db, 'strokes_' + roomId);
                     unsubStrokes = onSnapshot(strokesRef, (snapshot) => {
@@ -321,6 +321,10 @@
                             ctx.stroke();
                             knownStrokes[doc.id] = points.length;
                         });
+                    }, (error) => {
+                        console.error("Firestore sync error:", error);
+                        statusText.innerText = "Sync Error: Check DB Rules";
+                        statusDot.className = 'dot warning';
                     });
 
                     const boardStateRef = collection(db, 'board_state_' + roomId);
@@ -335,6 +339,8 @@
                                 }
                             }
                         });
+                    }, (error) => {
+                        console.error("Board sync error:", error);
                     });
                 });
             } else {
@@ -355,7 +361,8 @@
             localLastX = x; localLastY = y;
 
             if (isFirebaseConfigured && auth?.currentUser) {
-                currentStrokeId = crypto.randomUUID();
+                // Replaced crypto.randomUUID() for better mobile browser compatibility
+                currentStrokeId = Date.now().toString(36) + Math.random().toString(36).substring(2);
                 currentStrokePoints = [{ nx: x / canvas.width, ny: y / canvas.height }];
                 const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
                 setDoc(strokeDocRef, {
