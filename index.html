@@ -310,14 +310,20 @@
                             ctx.lineJoin = 'round';
                             ctx.lineCap = 'round';
                             ctx.beginPath();
+                            
+                            // Use the new getAbsolute mapping
                             if (startIndex === 0) {
-                                ctx.moveTo(points[0].nx * canvas.width, points[0].ny * canvas.height);
+                                const pt = getAbsolute(points[0].nx, points[0].ny);
+                                ctx.moveTo(pt.x, pt.y);
                             } else {
-                                ctx.moveTo(points[startIndex - 1].nx * canvas.width, points[startIndex - 1].ny * canvas.height);
+                                const pt = getAbsolute(points[startIndex - 1].nx, points[startIndex - 1].ny);
+                                ctx.moveTo(pt.x, pt.y);
                             }
                             for (let i = startIndex; i < points.length; i++) {
-                                ctx.lineTo(points[i].nx * canvas.width, points[i].ny * canvas.height);
+                                const pt = getAbsolute(points[i].nx, points[i].ny);
+                                ctx.lineTo(pt.x, pt.y);
                             }
+                            
                             ctx.stroke();
                             knownStrokes[doc.id] = points.length;
                         });
