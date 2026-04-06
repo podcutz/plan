@@ -54,8 +54,14 @@
             background: transparent;
         }
 
-        #toolbar:hover, #toolbar:focus-within {
+        #toolbar.open {
             right: 0;
+        }
+        
+        @media (hover: hover) and (pointer: fine) {
+            #toolbar:hover, #toolbar:focus-within {
+                right: 0;
+            }
         }
 
         input[type="color"] {
@@ -185,6 +191,8 @@
         <input type="color" id="colorPicker" value="#00ffcc" title="Choose Color">
         <span class="tool-label">Size</span>
         <input type="range" id="brushSize" min="1" max="50" value="5" title="Brush Size">
+        <button id="undoBtn" title="Undo Last Stroke">Undo</button>
+        <button id="redoBtn" title="Redo Last Stroke">Redo</button>
         <button id="clearBtn" title="Clear Canvas">Clear</button>
         <button id="logoutBtn" title="Log Out" style="margin-top: 20px; border-color: #ff3333; color: #ff3333;">Logout</button>
     </div>
@@ -212,8 +220,11 @@
 
         const canvas = document.getElementById('drawCanvas');
         const ctx = canvas.getContext('2d');
+        const toolbar = document.getElementById('toolbar');
         const colorPicker = document.getElementById('colorPicker');
         const brushSize = document.getElementById('brushSize');
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
         const clearBtn = document.getElementById('clearBtn');
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
@@ -229,8 +240,45 @@
         let isDrawing = false, localLastX = 0, localLastY = 0;
         let currentStrokeId = null, currentStrokePoints = [], lastSyncTime = 0;
         let roomId = 'offline', knownStrokes = {}, localClearTimestamp = 0;
+        
+        // --- NEW VARIABLES FOR UNDO/REDO ---
+        let myStrokes = [];
+        let redoStrokes = [];
+        let allStrokesData = {};
+        
         let db, auth;
         let unsubStrokes = null, unsubBoard = null;
+
+        function redrawAllStrokes() {
+            clearLocalCanvas();
+            knownStrokes = {};
+            const sortedStrokes = Object.values(allStrokesData).sort((a, b) => a.timestamp - b.timestamp);
+
+            sortedStrokes.forEach(data => {
+                if (data.undone) return;
+                if (data.timestamp <= localClearTimestamp) return;
+
+                const points = data.points || [];
+                if (points.length === 0) return;
+
+                ctx.strokeStyle = data.color;
+                ctx.lineWidth = data.size;
+                ctx.lineJoin = 'round';
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                
+                const startPt = getAbsolute(points[0].nx, points[0].ny);
+                ctx.moveTo(startPt.x, startPt.y);
+                
+                for (let i = 1; i < points.length; i++) {
+                    const pt = getAbsolute(points[i].nx, points[i].ny);
+                    ctx.lineTo(pt.x, pt.y);
+                }
+                
+                ctx.stroke();
+                knownStrokes[data.id] = points.length;
+            });
+        }
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -299,34 +347,62 @@
 
                     const strokesRef = collection(db, 'strokes_' + roomId);
                     unsubStrokes = onSnapshot(strokesRef, (snapshot) => {
-                        snapshot.forEach(doc => {
-                            const data = doc.data();
-                            const points = data.points || [];
-                            const startIndex = knownStrokes[doc.id] || 0;
-                            if (startIndex >= points.length) return;
+                        let needsFullRedraw = false;
 
-                            ctx.strokeStyle = data.color;
-                            ctx.lineWidth = data.size;
-                            ctx.lineJoin = 'round';
-                            ctx.lineCap = 'round';
-                            ctx.beginPath();
-                            
-                            // Use the new getAbsolute mapping
-                            if (startIndex === 0) {
-                                const pt = getAbsolute(points[0].nx, points[0].ny);
-                                ctx.moveTo(pt.x, pt.y);
+                        snapshot.docChanges().forEach(change => {
+                            const doc = change.doc;
+                            const data = doc.data();
+                            const id = doc.id;
+                            data.id = id;
+
+                            if (change.type === 'removed') {
+                                delete allStrokesData[id];
+                                needsFullRedraw = true;
                             } else {
-                                const pt = getAbsolute(points[startIndex - 1].nx, points[startIndex - 1].ny);
-                                ctx.moveTo(pt.x, pt.y);
+                                const prevData = allStrokesData[id];
+                                allStrokesData[id] = data;
+                                
+                                // Trigger redraw if an existing stroke was undone or redone
+                                if (prevData && prevData.undone !== data.undone) {
+                                    needsFullRedraw = true;
+                                }
                             }
-                            for (let i = startIndex; i < points.length; i++) {
-                                const pt = getAbsolute(points[i].nx, points[i].ny);
-                                ctx.lineTo(pt.x, pt.y);
-                            }
-                            
-                            ctx.stroke();
-                            knownStrokes[doc.id] = points.length;
                         });
+
+                        if (needsFullRedraw) {
+                            redrawAllStrokes();
+                        } else {
+                            // Incremental drawing for smooth real-time tracking
+                            snapshot.docs.forEach(doc => {
+                                const data = doc.data();
+                                if (data.undone || data.timestamp <= localClearTimestamp) return;
+
+                                const points = data.points || [];
+                                const startIndex = knownStrokes[doc.id] || 0;
+                                if (startIndex >= points.length) return;
+
+                                ctx.strokeStyle = data.color;
+                                ctx.lineWidth = data.size;
+                                ctx.lineJoin = 'round';
+                                ctx.lineCap = 'round';
+                                ctx.beginPath();
+                                
+                                if (startIndex === 0) {
+                                    const pt = getAbsolute(points[0].nx, points[0].ny);
+                                    ctx.moveTo(pt.x, pt.y);
+                                } else {
+                                    const pt = getAbsolute(points[startIndex - 1].nx, points[startIndex - 1].ny);
+                                    ctx.moveTo(pt.x, pt.y);
+                                }
+                                for (let i = startIndex; i < points.length; i++) {
+                                    const pt = getAbsolute(points[i].nx, points[i].ny);
+                                    ctx.lineTo(pt.x, pt.y);
+                                }
+                                
+                                ctx.stroke();
+                                knownStrokes[doc.id] = points.length;
+                            });
+                        }
                     }, (error) => {
                         console.error("Firestore sync error:", error);
                         statusText.innerText = "Sync Error: Check DB Rules";
@@ -339,9 +415,10 @@
                             if (doc.id === 'main') {
                                 const data = doc.data();
                                 if (data.clearTrigger && data.clearTrigger > localClearTimestamp) {
-                                    clearLocalCanvas();
-                                    knownStrokes = {};
                                     localClearTimestamp = data.clearTrigger;
+                                    myStrokes = [];
+                                    redoStrokes = [];
+                                    redrawAllStrokes();
                                 }
                             }
                         });
@@ -381,17 +458,28 @@
 
         function handleStart(e) {
             e.preventDefault(); 
-            isDrawing = true;
             const { x, y } = getCoords(e);
+            
+            // Mobile Edge Tap to open Toolbar
+            if (x > window.innerWidth - 40 && !toolbar.classList.contains('open')) {
+                toolbar.classList.add('open');
+                return; // Stop here so it doesn't draw a dot
+            } else {
+                toolbar.classList.remove('open'); // Auto-hide when drawing starts!
+            }
+
+            isDrawing = true;
             localLastX = x; localLastY = y;
 
             if (isFirebaseConfigured && auth?.currentUser) {
-                // Replaced crypto.randomUUID() for better mobile browser compatibility
                 currentStrokeId = Date.now().toString(36) + Math.random().toString(36).substring(2);
                 
-                // Use the new normalized math
                 const { nx, ny } = getNormalized(x, y);
                 currentStrokePoints = [{ nx, ny }];
+                
+                // Track your personal history and clear redo timeline
+                myStrokes.push(currentStrokeId);
+                redoStrokes = [];
                 
                 const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
                 setDoc(strokeDocRef, {
@@ -399,7 +487,8 @@
                     color: colorPicker.value,
                     size: brushSize.value,
                     points: currentStrokePoints,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    undone: false // Track visibility
                 });
             }
         }
@@ -450,6 +539,22 @@
         canvas.addEventListener('touchmove', handleMove, { passive: false });
         canvas.addEventListener('touchend', handleEnd);
         canvas.addEventListener('touchcancel', handleEnd);
+
+        // --- NEW UNDO / REDO LISTENERS ---
+        undoBtn.addEventListener('click', () => {
+            if (!isFirebaseConfigured || !auth?.currentUser || roomId === 'offline' || myStrokes.length === 0) return;
+            const strokeToUndo = myStrokes.pop();
+            redoStrokes.push(strokeToUndo);
+            updateDoc(doc(db, 'strokes_' + roomId, strokeToUndo), { undone: true });
+        });
+
+        redoBtn.addEventListener('click', () => {
+            if (!isFirebaseConfigured || !auth?.currentUser || roomId === 'offline' || redoStrokes.length === 0) return;
+            const strokeToRedo = redoStrokes.pop();
+            myStrokes.push(strokeToRedo);
+            updateDoc(doc(db, 'strokes_' + roomId, strokeToRedo), { undone: false });
+        });
+        // ---------------------------------
 
         clearBtn.addEventListener('click', () => {
             if (isFirebaseConfigured && auth?.currentUser && roomId !== 'offline') {
