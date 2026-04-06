@@ -355,6 +355,25 @@
         };
         initSystem();
 
+        // --- NEW COORDINATE MATH ---
+        // Normalizes based on the center and a unified scale to prevent stretching
+        function getNormalized(x, y) {
+            const scale = Math.min(canvas.width, canvas.height);
+            return {
+                nx: (x - (canvas.width / 2)) / scale,
+                ny: (y - (canvas.height / 2)) / scale
+            };
+        }
+
+        function getAbsolute(nx, ny) {
+            const scale = Math.min(canvas.width, canvas.height);
+            return {
+                x: (nx * scale) + (canvas.width / 2),
+                y: (ny * scale) + (canvas.height / 2)
+            };
+        }
+        // ---------------------------
+
         function getCoords(e) {
             if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
             return { x: e.clientX, y: e.clientY };
@@ -369,7 +388,11 @@
             if (isFirebaseConfigured && auth?.currentUser) {
                 // Replaced crypto.randomUUID() for better mobile browser compatibility
                 currentStrokeId = Date.now().toString(36) + Math.random().toString(36).substring(2);
-                currentStrokePoints = [{ nx: x / canvas.width, ny: y / canvas.height }];
+                
+                // Use the new normalized math
+                const { nx, ny } = getNormalized(x, y);
+                currentStrokePoints = [{ nx, ny }];
+                
                 const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
                 setDoc(strokeDocRef, {
                     userId: auth.currentUser.uid,
@@ -397,7 +420,10 @@
             localLastX = x; localLastY = y;
 
             if (isFirebaseConfigured && auth?.currentUser && currentStrokeId) {
-                currentStrokePoints.push({ nx: x / canvas.width, ny: y / canvas.height });
+                // Use the new normalized math
+                const { nx, ny } = getNormalized(x, y);
+                currentStrokePoints.push({ nx, ny });
+                
                 if (Date.now() - lastSyncTime > 75) {
                     const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
                     updateDoc(strokeDocRef, { points: currentStrokePoints });
