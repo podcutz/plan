@@ -42,7 +42,12 @@
             transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: -5px 0 15px rgba(0, 0, 0, 0.8);
             z-index: 100;
+            max-height: 90vh; /* Prevents overflow on small screens */
+            overflow-y: auto; /* Allows scrolling inside toolbar if needed */
         }
+        
+        /* Hides the scrollbar for aesthetics */
+        #toolbar::-webkit-scrollbar { display: none; }
 
         #toolbar::before {
             content: '';
@@ -141,6 +146,38 @@
             box-shadow: 0 0 8px rgba(255, 170, 0, 0.6);
         }
 
+        /* --- Floating Quick Tools (Undo/Redo) --- */
+        #quick-tools {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .icon-btn {
+            background-color: #1a1a1a;
+            color: #fff;
+            border: 1px solid #333;
+            border-radius: 50%;
+            width: 45px;
+            height: 45px;
+            font-size: 22px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.8);
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background-color: #fff;
+            color: #000;
+        }
+
         /* Login Overlay Styles */
         #login-overlay {
             position: fixed;
@@ -184,6 +221,12 @@
         <span id="statusText">Offline (Setup Firebase for Sync)</span>
     </div>
 
+    <!-- Floating Undo / Redo Menu -->
+    <div id="quick-tools">
+        <button id="undoBtn" class="icon-btn" title="Undo Last Stroke">↩</button>
+        <button id="redoBtn" class="icon-btn" title="Redo Last Stroke">↪</button>
+    </div>
+
     <canvas id="drawCanvas"></canvas>
 
     <div id="toolbar">
@@ -191,8 +234,6 @@
         <input type="color" id="colorPicker" value="#00ffcc" title="Choose Color">
         <span class="tool-label">Size</span>
         <input type="range" id="brushSize" min="1" max="50" value="5" title="Brush Size">
-        <button id="undoBtn" title="Undo Last Stroke">Undo</button>
-        <button id="redoBtn" title="Redo Last Stroke">Redo</button>
         <button id="clearBtn" title="Clear Canvas">Clear</button>
         <button id="logoutBtn" title="Log Out" style="margin-top: 20px; border-color: #ff3333; color: #ff3333;">Logout</button>
     </div>
@@ -200,7 +241,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // IMPORT deleteDoc function for permanent clearing
+        import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
         // 🛠️ STEP 1: PASTE YOUR FIREBASE CONFIG HERE
@@ -558,12 +600,24 @@
 
         clearBtn.addEventListener('click', () => {
             if (isFirebaseConfigured && auth?.currentUser && roomId !== 'offline') {
+                
+                // 💥 PERMANENT DELETION: Physically delete all documents from the database
+                Object.keys(allStrokesData).forEach(id => {
+                    deleteDoc(doc(db, 'strokes_' + roomId, id)).catch(err => console.error("Deletion error:", err));
+                });
+                
+                // Keep trigger as a backup mechanism to instantly clear other screens currently looking at it
                 const triggerTime = Date.now();
                 const boardStateRef = doc(db, 'board_state_' + roomId, 'main');
                 setDoc(boardStateRef, { clearTrigger: triggerTime }, { merge: true });
             }
+            
+            // Clear local tracking variables
             clearLocalCanvas();
             knownStrokes = {};
+            allStrokesData = {};
+            myStrokes = [];
+            redoStrokes = [];
             localClearTimestamp = Date.now();
         });
     </script>
