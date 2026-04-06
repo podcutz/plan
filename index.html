@@ -2,21 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dark Canvas Drawing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Live Sync Dark Canvas</title>
     <style>
-        /* Reset margins and prevent scrolling */
         body, html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #000000; /* Black screen */
+            background-color: #000000;
             font-family: sans-serif;
+            touch-action: none;
         }
 
-        /* The drawing surface */
         canvas {
             display: block;
             width: 100%;
@@ -24,10 +23,9 @@
             cursor: crosshair;
         }
 
-        /* Sleek Toolbar Container */
         #toolbar {
             position: fixed;
-            right: -70px; /* Hidden off-screen by default */
+            right: -70px;
             top: 50%;
             transform: translateY(-50%);
             width: 50px;
@@ -46,23 +44,20 @@
             z-index: 100;
         }
 
-        /* Invisible trigger zone to catch the mouse on the right edge */
         #toolbar::before {
             content: '';
             position: absolute;
-            left: -30px; /* Extends 30px to the left into the canvas */
+            left: -40px;
             top: 0;
-            width: 30px;
+            width: 40px;
             height: 100%;
             background: transparent;
         }
 
-        /* Slide out when hovering over the trigger zone or the toolbar itself */
-        #toolbar:hover {
+        #toolbar:hover, #toolbar:focus-within {
             right: 0;
         }
 
-        /* Styling the tools */
         input[type="color"] {
             -webkit-appearance: none;
             border: none;
@@ -74,18 +69,11 @@
             background: none;
         }
         
-        input[type="color"]::-webkit-color-swatch-wrapper {
-            padding: 0;
-        }
-        
-        input[type="color"]::-webkit-color-swatch {
-            border: 2px solid #fff;
-            border-radius: 50%;
-        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 2px solid #fff; border-radius: 50%; }
 
-        /* Range slider for brush size */
         input[type="range"] {
-            writing-mode: vertical-lr; /* Makes slider vertical */
+            writing-mode: vertical-lr;
             direction: rtl;
             height: 100px;
             width: 8px;
@@ -93,7 +81,6 @@
             cursor: pointer;
         }
 
-        /* Clear Button */
         button {
             background-color: transparent;
             color: #fff;
@@ -105,10 +92,7 @@
             transition: all 0.2s;
         }
 
-        button:hover {
-            background-color: #fff;
-            color: #000;
-        }
+        button:hover { background-color: #fff; color: #000; }
         
         .tool-label {
             color: #888;
@@ -117,88 +101,326 @@
             letter-spacing: 1px;
             margin-bottom: -10px;
         }
+
+        #live-status {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            color: #888;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ff3333;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(255, 51, 51, 0.6);
+        }
+
+        .dot.connected {
+            background-color: #00ffcc;
+            box-shadow: 0 0 8px rgba(0, 255, 204, 0.6);
+        }
+        
+        .dot.warning {
+            background-color: #ffaa00;
+            box-shadow: 0 0 8px rgba(255, 170, 0, 0.6);
+        }
+
+        /* Login Overlay Styles */
+        #login-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            color: #fff;
+        }
+        #login-overlay input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background: #1a1a1a;
+            color: #fff;
+            width: 200px;
+        }
+        #loginError {
+            color: #ff3333;
+            font-size: 12px;
+            margin-top: -5px;
+        }
     </style>
 </head>
 <body>
+
+    <div id="login-overlay">
+        <h2>Login to Draw</h2>
+        <input type="email" id="emailInput" placeholder="Email">
+        <input type="password" id="passwordInput" placeholder="Password">
+        <button id="loginBtn" style="width: 220px; padding: 10px; background: #fff; color: #000;">Login</button>
+        <p id="loginError"></p>
+    </div>
+
+    <div id="live-status">
+        <div class="dot warning" id="statusDot"></div>
+        <span id="statusText">Offline (Setup Firebase for Sync)</span>
+    </div>
 
     <canvas id="drawCanvas"></canvas>
 
     <div id="toolbar">
         <span class="tool-label">Color</span>
         <input type="color" id="colorPicker" value="#00ffcc" title="Choose Color">
-        
         <span class="tool-label">Size</span>
         <input type="range" id="brushSize" min="1" max="50" value="5" title="Brush Size">
-        
         <button id="clearBtn" title="Clear Canvas">Clear</button>
+        <button id="logoutBtn" title="Log Out" style="margin-top: 20px; border-color: #ff3333; color: #ff3333;">Logout</button>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 🛠️ STEP 1: PASTE YOUR FIREBASE CONFIG HERE
+        // ==========================================
+        const firebaseConfig = {
+  apiKey: "AIzaSyATqMFL9GpO3WYii-XRoehVKfPqvZI_cL8",
+  authDomain: "mybookingappn8n.firebaseapp.com",
+  projectId: "mybookingappn8n",
+  storageBucket: "mybookingappn8n.firebasestorage.app",
+  messagingSenderId: "644547863514",
+  appId: "1:644547863514:web:35d6aa766861a359df96e3",
+  measurementId: "G-2P5YMV3Y0M"
+};
+        // ==========================================
+
+        const isFirebaseConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE";
+
         const canvas = document.getElementById('drawCanvas');
         const ctx = canvas.getContext('2d');
-
-        // Toolbar elements
         const colorPicker = document.getElementById('colorPicker');
         const brushSize = document.getElementById('brushSize');
         const clearBtn = document.getElementById('clearBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
 
-        // Variables to track drawing state
-        let isDrawing = false;
-        let lastX = 0;
-        let lastY = 0;
+        // Login Elements
+        const loginOverlay = document.getElementById('login-overlay');
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginError = document.getElementById('loginError');
+        const logoutBtn = document.getElementById('logoutBtn');
 
-        // Set initial canvas size
+        let isDrawing = false, localLastX = 0, localLastY = 0;
+        let currentStrokeId = null, currentStrokePoints = [], lastSyncTime = 0;
+        let roomId = 'offline', knownStrokes = {}, localClearTimestamp = 0;
+        let db, auth;
+        let unsubStrokes = null, unsubBoard = null;
+
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // Fill with black to ensure it doesn't default to transparent
+            clearLocalCanvas();
+            knownStrokes = {}; 
+        }
+
+        function clearLocalCanvas() {
             ctx.fillStyle = "black";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // Initialize canvas
-        resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-        // Drawing functions
-        function startDrawing(e) {
-            isDrawing = true;
-            [lastX, lastY] = [e.clientX, e.clientY];
+        const initSystem = async () => {
+            try {
+                const ipResponse = await fetch('https://api.ipify.org?format=json');
+                const ipData = await ipResponse.json();
+                roomId = ipData.ip.replace(/[^a-zA-Z0-9]/g, '-');
+            } catch (e) {
+                console.warn("Could not detect network.");
+            }
+
+            if (isFirebaseConfigured) {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                // Handle Login UI
+                loginBtn.addEventListener('click', async () => {
+                    loginError.innerText = "Logging in...";
+                    try {
+                        await signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value);
+                    } catch (error) {
+                        loginError.innerText = "Error: " + error.message;
+                    }
+                });
+
+                // Handle Logout
+                logoutBtn.addEventListener('click', () => {
+                    signOut(auth);
+                });
+
+                onAuthStateChanged(auth, (user) => {
+                    if (unsubStrokes) unsubStrokes();
+                    if (unsubBoard) unsubBoard();
+
+                    if (!user) {
+                        loginOverlay.style.display = 'flex';
+                        statusDot.className = 'dot warning';
+                        statusText.innerText = "Logged Out";
+                        return;
+                    }
+                    
+                    loginOverlay.style.display = 'none';
+
+                    if (roomId === 'offline') {
+                        statusText.innerText = "Offline Mode";
+                        return;
+                    }
+                    
+                    statusDot.className = 'dot connected';
+                    statusText.innerText = "Wi-Fi Sync On";
+
+                    const strokesRef = collection(db, 'strokes_' + roomId);
+                    unsubStrokes = onSnapshot(strokesRef, (snapshot) => {
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            const points = data.points || [];
+                            const startIndex = knownStrokes[doc.id] || 0;
+                            if (startIndex >= points.length) return;
+
+                            ctx.strokeStyle = data.color;
+                            ctx.lineWidth = data.size;
+                            ctx.lineJoin = 'round';
+                            ctx.lineCap = 'round';
+                            ctx.beginPath();
+                            if (startIndex === 0) {
+                                ctx.moveTo(points[0].nx * canvas.width, points[0].ny * canvas.height);
+                            } else {
+                                ctx.moveTo(points[startIndex - 1].nx * canvas.width, points[startIndex - 1].ny * canvas.height);
+                            }
+                            for (let i = startIndex; i < points.length; i++) {
+                                ctx.lineTo(points[i].nx * canvas.width, points[i].ny * canvas.height);
+                            }
+                            ctx.stroke();
+                            knownStrokes[doc.id] = points.length;
+                        });
+                    });
+
+                    const boardStateRef = collection(db, 'board_state_' + roomId);
+                    unsubBoard = onSnapshot(boardStateRef, (snapshot) => {
+                        snapshot.forEach(doc => {
+                            if (doc.id === 'main') {
+                                const data = doc.data();
+                                if (data.clearTrigger && data.clearTrigger > localClearTimestamp) {
+                                    clearLocalCanvas();
+                                    knownStrokes = {};
+                                    localClearTimestamp = data.clearTrigger;
+                                }
+                            }
+                        });
+                    });
+                });
+            } else {
+                loginOverlay.style.display = 'none';
+            }
+        };
+        initSystem();
+
+        function getCoords(e) {
+            if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            return { x: e.clientX, y: e.clientY };
         }
 
-        function draw(e) {
-            if (!isDrawing) return;
+        function handleStart(e) {
+            e.preventDefault(); 
+            isDrawing = true;
+            const { x, y } = getCoords(e);
+            localLastX = x; localLastY = y;
 
-            // Pen settings
+            if (isFirebaseConfigured && auth?.currentUser) {
+                currentStrokeId = crypto.randomUUID();
+                currentStrokePoints = [{ nx: x / canvas.width, ny: y / canvas.height }];
+                const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
+                setDoc(strokeDocRef, {
+                    userId: auth.currentUser.uid,
+                    color: colorPicker.value,
+                    size: brushSize.value,
+                    points: currentStrokePoints,
+                    timestamp: Date.now()
+                });
+            }
+        }
+
+        function handleMove(e) {
+            if (!isDrawing) return;
+            e.preventDefault();
+            const { x, y } = getCoords(e);
+
             ctx.strokeStyle = colorPicker.value;
             ctx.lineWidth = brushSize.value;
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
-
-            // Draw the line
             ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-            ctx.lineTo(e.clientX, e.clientY);
+            ctx.moveTo(localLastX, localLastY);
+            ctx.lineTo(x, y);
             ctx.stroke();
+            localLastX = x; localLastY = y;
 
-            // Update starting point for next line segment
-            [lastX, lastY] = [e.clientX, e.clientY];
+            if (isFirebaseConfigured && auth?.currentUser && currentStrokeId) {
+                currentStrokePoints.push({ nx: x / canvas.width, ny: y / canvas.height });
+                if (Date.now() - lastSyncTime > 75) {
+                    const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
+                    updateDoc(strokeDocRef, { points: currentStrokePoints });
+                    lastSyncTime = Date.now();
+                }
+            }
         }
 
-        function stopDrawing() {
+        function handleEnd(e) {
+            if (!isDrawing) return;
             isDrawing = false;
+            if (isFirebaseConfigured && auth?.currentUser && currentStrokeId) {
+                const strokeDocRef = doc(db, 'strokes_' + roomId, currentStrokeId);
+                updateDoc(strokeDocRef, { points: currentStrokePoints });
+            }
+            currentStrokeId = null;
         }
 
-        // Mouse Event Listeners
-        canvas.addEventListener('mousedown', startDrawing);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', stopDrawing);
-        canvas.addEventListener('mouseout', stopDrawing);
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseout', handleEnd);
+        canvas.addEventListener('touchstart', handleStart, { passive: false });
+        canvas.addEventListener('touchmove', handleMove, { passive: false });
+        canvas.addEventListener('touchend', handleEnd);
+        canvas.addEventListener('touchcancel', handleEnd);
 
-        // Clear Canvas Button Logic
         clearBtn.addEventListener('click', () => {
-            ctx.fillStyle = "black";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (isFirebaseConfigured && auth?.currentUser && roomId !== 'offline') {
+                const triggerTime = Date.now();
+                const boardStateRef = doc(db, 'board_state_' + roomId, 'main');
+                setDoc(boardStateRef, { clearTrigger: triggerTime }, { merge: true });
+            }
+            clearLocalCanvas();
+            knownStrokes = {};
+            localClearTimestamp = Date.now();
         });
     </script>
 </body>
