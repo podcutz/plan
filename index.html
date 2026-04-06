@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Canvas Drawing</title>
+    <style>
+        /* Reset margins and prevent scrolling */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000000; /* Black screen */
+            font-family: sans-serif;
+        }
+
+        /* The drawing surface */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        /* Sleek Toolbar Container */
+        #toolbar {
+            position: fixed;
+            right: -70px; /* Hidden off-screen by default */
+            top: 50%;
+            transform: translateY(-50%);
+            width: 50px;
+            background-color: #1a1a1a;
+            border-left: 1px solid #333;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+            border-radius: 12px 0 0 12px;
+            padding: 20px 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.8);
+            z-index: 100;
+        }
+
+        /* Invisible trigger zone to catch the mouse on the right edge */
+        #toolbar::before {
+            content: '';
+            position: absolute;
+            left: -30px; /* Extends 30px to the left into the canvas */
+            top: 0;
+            width: 30px;
+            height: 100%;
+            background: transparent;
+        }
+
+        /* Slide out when hovering over the trigger zone or the toolbar itself */
+        #toolbar:hover {
+            right: 0;
+        }
+
+        /* Styling the tools */
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            padding: 0;
+            background: none;
+        }
+        
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        
+        input[type="color"]::-webkit-color-swatch {
+            border: 2px solid #fff;
+            border-radius: 50%;
+        }
+
+        /* Range slider for brush size */
+        input[type="range"] {
+            writing-mode: vertical-lr; /* Makes slider vertical */
+            direction: rtl;
+            height: 100px;
+            width: 8px;
+            accent-color: #fff;
+            cursor: pointer;
+        }
+
+        /* Clear Button */
+        button {
+            background-color: transparent;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 8px 5px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background-color: #fff;
+            color: #000;
+        }
+        
+        .tool-label {
+            color: #888;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: -10px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="drawCanvas"></canvas>
+
+    <div id="toolbar">
+        <span class="tool-label">Color</span>
+        <input type="color" id="colorPicker" value="#00ffcc" title="Choose Color">
+        
+        <span class="tool-label">Size</span>
+        <input type="range" id="brushSize" min="1" max="50" value="5" title="Brush Size">
+        
+        <button id="clearBtn" title="Clear Canvas">Clear</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('drawCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Toolbar elements
+        const colorPicker = document.getElementById('colorPicker');
+        const brushSize = document.getElementById('brushSize');
+        const clearBtn = document.getElementById('clearBtn');
+
+        // Variables to track drawing state
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        // Set initial canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Fill with black to ensure it doesn't default to transparent
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Initialize canvas
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Drawing functions
+        function startDrawing(e) {
+            isDrawing = true;
+            [lastX, lastY] = [e.clientX, e.clientY];
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+
+            // Pen settings
+            ctx.strokeStyle = colorPicker.value;
+            ctx.lineWidth = brushSize.value;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            // Draw the line
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(e.clientX, e.clientY);
+            ctx.stroke();
+
+            // Update starting point for next line segment
+            [lastX, lastY] = [e.clientX, e.clientY];
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        // Mouse Event Listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        // Clear Canvas Button Logic
+        clearBtn.addEventListener('click', () => {
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        });
+    </script>
+</body>
+</html>
